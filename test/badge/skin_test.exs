@@ -4,6 +4,7 @@ defmodule Badge.SkinTest do
   alias Badge.Skin
   alias Badge.Skin.Dark
   alias Badge.Skin.Macintosh
+  alias Badge.Skin.NabuCasa
   alias Badge.Skin.NeonDusk
   alias Badge.Skin.Win95
   alias Badge.Skin.WinXP
@@ -26,11 +27,25 @@ defmodule Badge.SkinTest do
   end
 
   describe "decorations" do
-    test "only Neon Dusk has any, a chaser round the edge among them" do
+    test "only the neon skins have any, a chaser round the edge among them" do
       assert Dark.decor() == []
       assert Win95.decor() == []
       assert Macintosh.decor() == []
       assert Enum.any?(NeonDusk.decor(), &match?({:chaser, _, _, _, _, _}, &1))
+      assert Enum.any?(NabuCasa.decor(), &match?({:chaser, _, _, _, _, _}, &1))
+    end
+
+    test "NabuCasa has no beam and no glitches" do
+      kinds = for spec <- NabuCasa.decor(), do: elem(spec, 0)
+
+      assert :lists.usort(kinds) == [:chaser, :line]
+    end
+
+    test "NabuCasa wears the brand colours" do
+      assert NabuCasa.muted() == 0xA8B7CD
+      assert NabuCasa.select() == 0xFFDE77
+      assert {:rect, 10, 5, 4, 1, 0xFFDE77} in NabuCasa.chrome("Badge", @status)
+      assert NabuCasa.chrome("Badge", @status) != NeonDusk.chrome("Badge", @status)
     end
 
     test "a page gets lines only with its title bar, and a border only if it asks" do
@@ -68,7 +83,8 @@ defmodule Badge.SkinTest do
       assert Skin.shift(Win95, 1) == WinXP
       assert Skin.shift(WinXP, 1) == Macintosh
       assert Skin.shift(Macintosh, 1) == NeonDusk
-      assert Skin.shift(NeonDusk, 1) == NeonDusk
+      assert Skin.shift(NeonDusk, 1) == NabuCasa
+      assert Skin.shift(NabuCasa, 1) == NabuCasa
       assert Skin.shift(Macintosh, -1) == WinXP
     end
   end
@@ -125,7 +141,7 @@ defmodule Badge.SkinTest do
     end
   end
 
-  for skin <- [Dark, Win95, WinXP, Macintosh, NeonDusk] do
+  for skin <- [Dark, Win95, WinXP, Macintosh, NeonDusk, NabuCasa] do
     describe "#{inspect(skin)}" do
       @skin skin
 

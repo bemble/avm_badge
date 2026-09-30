@@ -172,7 +172,7 @@ defmodule Badge.Page.Settings.DisplayTest do
     end
 
     test "stops at both ends rather than wrapping", %{editing: editing} do
-      assert elem(Display.values(press(editing, {:move, :right}, 9)), 3) == "Neon Dusk"
+      assert elem(Display.values(press(editing, {:move, :right}, 9)), 3) == "NabuCasa"
       assert elem(Display.values(press(editing, {:move, :left}, 9)), 3) == "Dark"
     end
 
