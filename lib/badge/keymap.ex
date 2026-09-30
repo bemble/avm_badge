@@ -6,7 +6,8 @@ defmodule Badge.Keymap do
   `~c"Space"`), not characters, so this is the layer that decides what a key
   actually means. Keys with no text meaning — modifiers, arrows, the badge's
   shape keys — return `:ignore` rather than being silently dropped upstream,
-  so the caller has one place to look when a key does nothing.
+  so the caller has one place to look when a key does nothing. Ctrl, SP and
+  left Alt decode to `{:mod, :ctrl | :solder | :alt}`, which pages may bind.
 
   The lookup tables are built at compile time on the host, where the full
   Elixir standard library is available. Only `decode/2` runs on AtomVM.
@@ -43,13 +44,13 @@ defmodule Badge.Keymap do
 
   @printable @punctuation ++ @letters
 
-  @unshifted (for {label, unshifted, _shifted} <- @printable,
-                  into: %{},
-                  do: {label, unshifted})
+  @unshifted for {label, unshifted, _shifted} <- @printable,
+                 into: %{},
+                 do: {label, unshifted}
 
-  @shifted (for {label, _unshifted, shifted} <- @printable,
-                into: %{},
-                do: {label, shifted})
+  @shifted for {label, _unshifted, shifted} <- @printable,
+               into: %{},
+               do: {label, shifted}
 
   @edits %{
     ~c"Bksp" => :backspace,
@@ -74,6 +75,13 @@ defmodule Badge.Keymap do
     ~c"Down" => :down,
     ~c"Left" => :left,
     ~c"Right" => :right
+  }
+
+  # Free keys a page may bind; text fields ignore them.
+  @mods %{
+    ~c"Ctrl" => :ctrl,
+    ~c"SP" => :solder,
+    ~c"Alt" => :alt
   }
 
   @doc """
@@ -107,8 +115,15 @@ defmodule Badge.Keymap do
 
   defp move(label) do
     case Map.get(@moves, label) do
-      nil -> :ignore
+      nil -> mod(label)
       dir -> {:move, dir}
+    end
+  end
+
+  defp mod(label) do
+    case Map.get(@mods, label) do
+      nil -> :ignore
+      key -> {:mod, key}
     end
   end
 end

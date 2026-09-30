@@ -76,7 +76,7 @@ defmodule Badge.PagesTest do
                Badge.Page.Sensors,
                Badge.Page.Agent,
                Badge.Page.Cluster,
-               nil,
+               Badge.Page.Snake,
                nil
              ]
     end
@@ -89,7 +89,6 @@ defmodule Badge.PagesTest do
     end
 
     test "an empty slot is nil, not a crash" do
-      assert Pages.for_key(:clover, 1) == nil
       assert Pages.for_key(:diamond, 1) == nil
       assert Pages.for_key(:square, 99) == nil
     end
@@ -131,6 +130,54 @@ defmodule Badge.PagesTest do
 
     test "home itself does not trap escape either" do
       assert Badge.Page.Home.handle_key({:nav, :home}, Badge.Page.Home.init()) == :ignore
+    end
+  end
+
+  describe "keys no page binds" do
+    @mods [:ctrl, :solder, :alt, :unknown]
+
+    @others [
+      Badge.Page.Home,
+      Badge.Page.Splash,
+      Badge.Page.Text,
+      Badge.Page.Chat.Room,
+      Badge.Page.Chat.Rooms,
+      Badge.Page.Chat.Banned
+    ]
+
+    defp modules do
+      subs = Badge.Page.Settings.subpages() ++ Badge.Page.Sensors.subpages()
+      Enum.uniq(assigned() ++ subs ++ @others)
+    end
+
+    defp variants(state) do
+      modes = [:show, :typing, :picking, :fields, :detail, :passphrase, :joined, :list]
+
+      more =
+        cond do
+          is_map(state) and Map.has_key?(state, :mode) -> for m <- modes, do: %{state | mode: m}
+          is_map(state) and Map.has_key?(state, :confirm) -> [%{state | confirm: :revert}]
+          true -> []
+        end
+
+      [state | more]
+    end
+
+    test "a modifier event neither raises nor edits, on every page and mode" do
+      for module <- modules(), state <- variants(module.init()), k <- @mods do
+        result = module.handle_key({:mod, k}, state)
+
+        assert result == :ignore or match?({:ok, _}, result),
+               "#{inspect(module)} answered #{inspect(result)} for #{k}"
+      end
+    end
+
+    test "a text field gains nothing from a modifier" do
+      wifi = %{Badge.Page.Settings.Wifi.init() | mode: :passphrase}
+      assert {:ok, ^wifi} = Badge.Page.Settings.Wifi.handle_key({:mod, :ctrl}, wifi)
+
+      name = %{Badge.Page.Name.init() | mode: :typing}
+      assert {:ok, ^name} = Badge.Page.Name.handle_key({:mod, :alt}, name)
     end
   end
 end

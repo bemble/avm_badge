@@ -68,6 +68,10 @@ defmodule Badge.LedEffect do
 
   @flash_ms 600
 
+  @doc "How long a flash lasts unless told otherwise."
+  @spec flash_ms() :: pos_integer
+  def flash_ms, do: @flash_ms
+
   @doc "The setting used when nothing valid is stored."
   @spec default() :: map
   def default, do: @default
@@ -115,9 +119,9 @@ defmodule Badge.LedEffect do
      ]}
   end
 
-  @doc "The request that flashes the whole ring in a hue, over whatever is running."
-  @spec flash(non_neg_integer) :: tuple
-  def flash(hue), do: {:flash, Color.rgb888(Color.hsv_to_rgb(hue, 255, 255)), @flash_ms}
+  @doc "The request that flashes the whole ring in a hue for `ms`, over whatever is running."
+  @spec flash(non_neg_integer, pos_integer) :: tuple
+  def flash(hue, ms \\ @flash_ms), do: {:flash, Color.rgb888(Color.hsv_to_rgb(hue, 255, 255)), ms}
 
   @doc "A setting as it is written to NVS."
   @spec encode(map) :: binary

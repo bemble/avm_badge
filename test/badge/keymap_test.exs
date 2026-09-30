@@ -108,16 +108,23 @@ defmodule Badge.KeymapTest do
     end
   end
 
+  describe "free modifier keys" do
+    test "Ctrl, SP and left Alt decode to mod events, shifted or not" do
+      for shifted <- [false, true] do
+        assert Keymap.decode(~c"Ctrl", shifted) == {:mod, :ctrl}
+        assert Keymap.decode(~c"SP", shifted) == {:mod, :solder}
+        assert Keymap.decode(~c"Alt", shifted) == {:mod, :alt}
+      end
+    end
+  end
+
   describe "keys with no meaning" do
     test "modifiers and unmapped intersections are ignored, shifted or not" do
       for label <- [
             ~c"LShift",
             ~c"RShift",
-            ~c"Ctrl",
-            ~c"Alt",
             ~c"AltGr",
             ~c"Fn",
-            ~c"SP",
             ~c"<unmapped R0C0>"
           ] do
         assert Keymap.decode(label, false) == :ignore

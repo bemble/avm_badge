@@ -471,9 +471,13 @@ defmodule Badge.Keyboard do
 
       event ->
         route_event(event)
-        {:emitted, event}
+        emitted(event)
     end
   end
+
+  # A modifier never repeats, and must not steal the repeat of a held arrow.
+  defp emitted({:mod, _key}), do: :ignored
+  defp emitted(event), do: {:emitted, event}
 
   # Collapses duplicate labels to one event, keeping the first matrix position.
   defp label_once(pressed) do

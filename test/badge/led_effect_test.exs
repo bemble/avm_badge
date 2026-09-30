@@ -65,6 +65,10 @@ defmodule Badge.LedEffectTest do
       assert {:flash, 0xFF0000, ms} = LedEffect.flash(0)
       assert ms in 100..2000
     end
+
+    test "a flash can be held for a given time" do
+      assert {:flash, 0x00FF00, 1500} = LedEffect.flash(120, 1500)
+    end
   end
 
   describe "storage" do

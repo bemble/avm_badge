@@ -39,9 +39,9 @@ defmodule Badge.Pixels do
   @spec wake() :: :ok
   def wake, do: GenServer.cast(__MODULE__, :wake)
 
-  @doc "Flashes the whole ring in a hue over whatever is running."
-  @spec flash(non_neg_integer) :: :ok
-  def flash(hue), do: GenServer.cast(__MODULE__, {:flash, hue})
+  @doc "Flashes the whole ring in a hue for `ms` over whatever is running, which then resumes."
+  @spec flash(non_neg_integer, pos_integer) :: :ok
+  def flash(hue, ms \\ LedEffect.flash_ms()), do: GenServer.cast(__MODULE__, {:flash, hue, ms})
 
   @impl true
   def init(driver) do
@@ -79,10 +79,10 @@ defmodule Badge.Pixels do
   def handle_cast(:wake, state), do: {:noreply, show(%{state | asleep: false})}
 
   # A badge in a pocket stays dark, flash or not.
-  def handle_cast({:flash, _hue}, %{asleep: true} = state), do: {:noreply, state}
+  def handle_cast({:flash, _hue, _ms}, %{asleep: true} = state), do: {:noreply, state}
 
-  def handle_cast({:flash, hue}, state) do
-    state.driver.call(state.chain, LedEffect.flash(hue))
+  def handle_cast({:flash, hue, ms}, state) do
+    state.driver.call(state.chain, LedEffect.flash(hue, ms))
 
     {:noreply, state}
   end
