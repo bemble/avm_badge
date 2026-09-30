@@ -6,9 +6,8 @@ defmodule Badge.Sim.Check do
   alias Badge.Sim.Board
   alias Badge.Sim.Display
 
-  @doc "The splash, then every page a shape key opens from anywhere."
-  def pages,
-    do: [Splash] ++ for({_key, module} <- Badge.Pages.screen(0), module != nil, do: module)
+  @doc "The splash, then every page of the home grid."
+  def pages, do: [Splash] ++ Badge.Pages.all()
 
   @doc "Renders `page` through `Badge.UI` and returns its complete display snapshot."
   def render(page) do
@@ -53,8 +52,7 @@ defmodule Badge.Sim.Check do
 
   defp navigate(page) do
     leave_splash()
-    key = key_for(page)
-    Badge.UI.key_event({:nav, key})
+    Badge.UI.goto(page)
     state = await_page(page, 50)
 
     with true <- state.dirty,
@@ -97,11 +95,4 @@ defmodule Badge.Sim.Check do
   end
 
   defp current_page, do: :sys.get_state(Badge.UI).page
-
-  defp key_for(page) do
-    case :lists.keyfind(page, 2, Badge.Pages.screen(0)) do
-      {key, ^page} -> key
-      false -> raise "#{inspect(page)} is not a top-level page"
-    end
-  end
 end
