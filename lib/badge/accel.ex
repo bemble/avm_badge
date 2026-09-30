@@ -13,7 +13,12 @@ defmodule Badge.Accel do
   up reads `{0, 0, 1000}` and one hanging upright reads `{0, 1000, 0}`.
   """
 
+  import Bitwise
+
   @type mg :: {integer, integer, integer}
+
+  # INT1_SRC's IA bit: an interrupt event has been latched.
+  @int_active 0x40
 
   @doc """
   Decodes the 6 bytes read from OUT_X_L..OUT_Z_H (0x28..0x2D) into milli-g,
@@ -53,4 +58,19 @@ defmodule Badge.Accel do
     pitch = round(:math.atan2(y, z) * 180 / :math.pi())
     {roll, pitch}
   end
+
+  @doc """
+  INT1_THS for a motion threshold in milli-g at +-2g full scale, 16 mg per
+  count, clamped to the register's 7 bits and never zero.
+  """
+  @spec threshold(pos_integer) :: 1..127
+  def threshold(mg), do: min(max(div(mg + 8, 16), 1), 127)
+
+  @doc "INT1_DURATION for a motion that must last `ms`, in samples at `odr_hz`, within 7 bits."
+  @spec duration(non_neg_integer, pos_integer) :: 0..127
+  def duration(ms, odr_hz), do: min(div(ms * odr_hz + 500, 1000), 127)
+
+  @doc "Whether an INT1_SRC reading reports a latched motion event."
+  @spec moved?(byte) :: boolean
+  def moved?(int1_src), do: (int1_src &&& @int_active) != 0
 end

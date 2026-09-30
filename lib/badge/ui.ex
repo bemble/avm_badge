@@ -24,7 +24,8 @@ defmodule Badge.UI do
   After the sleep timeout the panel and the LED chain go dark and no frame is
   drawn, though pages keep ticking so nothing resets behind the blank screen.
   The key that wakes the badge is swallowed here rather than reaching the page,
-  so waking never also does something.
+  so waking never also does something. With the Wake on motion setting on, moving
+  the badge also wakes it, through `Badge.Sensors`.
 
   The title bar carries the page name, a clock and the battery and wifi
   icons. Its contents are compared like page state, so the clock ticks even
@@ -48,6 +49,7 @@ defmodule Badge.UI do
   alias Badge.Pages
   alias Badge.Pixels
   alias Badge.Power
+  alias Badge.Sensors
   alias Badge.Skin
   alias Badge.Sleep
   alias Badge.Theme
@@ -99,6 +101,10 @@ defmodule Badge.UI do
   """
   @spec goto(module) :: :ok
   def goto(page), do: GenServer.cast(__MODULE__, {:goto, page})
+
+  @doc "Turns the screen back on if it is dark, or restarts the sleep timeout if not."
+  @spec wake() :: :ok
+  def wake, do: GenServer.cast(__MODULE__, :wake)
 
   @doc "From `Badge.Keyboard`: the CPU slept for `ms`, or the sleep was refused."
   @spec slept({:ok, integer} | :refused) :: :ok
@@ -153,6 +159,7 @@ defmodule Badge.UI do
       idle: 0,
       asleep: false,
       napping: false,
+      motion: false,
       drawn_at: now()
     }
 
@@ -178,15 +185,22 @@ defmodule Badge.UI do
     {:noreply, prompt(wake(state))}
   end
 
-  # The only wake source is a key, so the screen comes on without waiting for its event.
+  def handle_cast(:wake, %{asleep: true} = state), do: {:noreply, wake(state)}
+
+  def handle_cast(:wake, state), do: {:noreply, %{state | idle: 0}}
+
+  # Every wake source is a key or motion, so the screen comes on without waiting for either.
   def handle_cast({:slept, {:ok, _ms}}, state) do
     Wifi.resume()
 
     {:noreply, wake(%{state | napping: false})}
   end
 
+  # Parking took the motion interrupt away, so it is armed again for the screen-dark wait.
   def handle_cast({:slept, :refused}, state) do
     Wifi.resume()
+
+    if state.motion, do: Sensors.arm_motion()
 
     {:noreply, %{state | napping: false, idle: 0}}
   end
@@ -364,19 +378,37 @@ defmodule Badge.UI do
     Display.decor(state.display, [])
     :erlang.put(@decor_key, nil)
 
-    %{state | asleep: true, idle: 0}
+    sync_motion(%{state | asleep: true, idle: 0})
   end
 
   defp holds do
     %{usb: Power.usb_present?(), downloading: Update.Link.status().state == :downloading}
   end
 
+  # Motion that fired just before the nap wakes the screen instead.
+  defp nap(%{motion: true} = state) do
+    case park_motion() do
+      :moved -> wake(state)
+      :parked -> suspend(state, true)
+      _off -> suspend(state, false)
+    end
+  end
+
+  defp nap(state), do: suspend(state, false)
+
   # The radio is parked before the CPU, so the disconnect is out before it stops.
-  defp nap(state) do
+  defp suspend(state, motion) do
     Wifi.suspend()
-    Keyboard.light_sleep()
+    Keyboard.light_sleep(motion)
 
     %{state | napping: true, idle: 0}
+  end
+
+  # A dead Sensors must not take this process with it.
+  defp park_motion do
+    Sensors.park_motion()
+  catch
+    :exit, _reason -> :off
   end
 
   # Dirty, so the panel is right the moment the light comes back.
@@ -384,7 +416,25 @@ defmodule Badge.UI do
     Backlight.wake()
     Pixels.wake()
 
-    %{state | asleep: false, idle: 0, dirty: true, countdown: 0}
+    sync_motion(%{state | asleep: false, idle: 0, dirty: true, countdown: 0})
+  end
+
+  # Motion is armed exactly while the screen is dark with Wake on motion on.
+  defp sync_motion(state) do
+    wanted = state.asleep and Backlight.settings().motion
+
+    case {wanted, state.motion} do
+      {same, same} ->
+        state
+
+      {true, false} ->
+        Sensors.arm_motion()
+        %{state | motion: true}
+
+      {false, true} ->
+        Sensors.disarm_motion()
+        %{state | motion: false}
+    end
   end
 
   # Fonts are settled before the frame, never from a page, because a page runs
@@ -478,7 +528,7 @@ defmodule Badge.UI do
     state.page.leave(state.page_state)
     :io.format(~c"UI: page ~p~n", [page])
 
-    %{state | page: page, page_state: page.init(), dirty: true, countdown: 0}
+    sync_motion(%{state | page: page, page_state: page.init(), dirty: true, countdown: 0})
   end
 
   defp render(%{display: display, page: page, page_state: page_state, status: status}) do

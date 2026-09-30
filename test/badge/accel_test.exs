@@ -83,4 +83,31 @@ defmodule Badge.AccelTest do
       assert Accel.orientation({0, -500, 866}) == {0, -30}
     end
   end
+
+  describe "motion interrupt registers" do
+    test "a threshold is counted in 16 mg steps, rounded to the nearest" do
+      assert Accel.threshold(320) == 20
+      assert Accel.threshold(300) == 19
+      assert Accel.threshold(16) == 1
+    end
+
+    test "a threshold never reaches zero, which would fire on noise, nor overflows 7 bits" do
+      assert Accel.threshold(1) == 1
+      assert Accel.threshold(4_000) == 127
+    end
+
+    test "a duration is counted in samples at the output data rate" do
+      assert Accel.duration(80, 25) == 2
+      assert Accel.duration(40, 25) == 1
+      assert Accel.duration(0, 25) == 0
+      assert Accel.duration(60_000, 25) == 127
+    end
+
+    test "only INT1_SRC's IA bit means a motion event" do
+      assert Accel.moved?(0x40)
+      assert Accel.moved?(0x6A)
+      refute Accel.moved?(0x2A)
+      refute Accel.moved?(0x00)
+    end
+  end
 end

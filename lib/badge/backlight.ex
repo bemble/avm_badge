@@ -30,6 +30,7 @@ defmodule Badge.Backlight do
 
   @default_brightness 100
   @default_sleep :s30
+  @default_motion false
 
   # Sleep is a backlight concern, so its options live here rather than in the page.
   @timeouts [{:s10, "10s"}, {:s30, "30s"}, {:s60, "60s"}, {:off, "off"}]
@@ -49,14 +50,14 @@ defmodule Badge.Backlight do
     GenServer.cast(__MODULE__, {:set, percent})
   end
 
-  @doc "Saves brightness and sleep timeout so they survive a reboot."
-  @spec store(integer, atom) :: :ok
-  def store(percent, sleep) do
-    GenServer.cast(__MODULE__, {:store, percent, sleep})
+  @doc "Saves brightness, sleep timeout and wake on motion so they survive a reboot."
+  @spec store(integer, atom, boolean) :: :ok
+  def store(percent, sleep, motion) do
+    GenServer.cast(__MODULE__, {:store, percent, sleep, motion})
   end
 
   @doc "The saved settings, as they were loaded or last stored."
-  @spec settings() :: %{brightness: integer, sleep: atom}
+  @spec settings() :: %{brightness: integer, sleep: atom, motion: boolean}
   def settings do
     GenServer.call(__MODULE__, :settings)
   end
@@ -94,6 +95,9 @@ defmodule Badge.Backlight do
   @doc "Sleep timeout to use when nothing has been saved."
   def default_sleep, do: @default_sleep
 
+  @doc "Wake on motion to use when nothing has been saved."
+  def default_motion, do: @default_motion
+
   @doc "Reads a stored brightness, falling back to the default."
   @spec decode_brightness(binary | nil) :: integer
   def decode_brightness(nil), do: @default_brightness
@@ -114,6 +118,17 @@ defmodule Badge.Backlight do
   @doc "The label a sleep timeout is stored and shown as."
   @spec sleep_label(atom) :: binary
   def sleep_label(sleep), do: labelled(@timeouts, sleep)
+
+  @doc "Reads a stored wake on motion, falling back to the default."
+  @spec decode_motion(binary | nil) :: boolean
+  def decode_motion("on"), do: true
+  def decode_motion("off"), do: false
+  def decode_motion(_stored), do: @default_motion
+
+  @doc "The label a wake on motion setting is stored and shown as."
+  @spec motion_label(boolean) :: binary
+  def motion_label(true), do: "on"
+  def motion_label(_off), do: "off"
 
   defp named([], _label), do: @default_sleep
   defp named([{name, label} | _rest], label), do: name
@@ -162,6 +177,7 @@ defmodule Badge.Backlight do
   def init(:ok) do
     brightness = decode_brightness(Nvs.get(:brightness))
     sleep = decode_sleep(Nvs.get(:sleep))
+    motion = decode_motion(Nvs.get(:wake_motion))
 
     :ok =
       LEDC.timer_config(
@@ -181,26 +197,28 @@ defmodule Badge.Backlight do
         timer_sel: @timer
       )
 
-    :io.format(~c"Backlight: pwm on GPIO~p at ~p%, sleep ~s~n", [
+    :io.format(~c"Backlight: pwm on GPIO~p at ~p%, sleep ~s, wake on motion ~s~n", [
       Hardware.display_backlight(),
       brightness,
-      sleep_label(sleep)
+      sleep_label(sleep),
+      motion_label(motion)
     ])
 
-    {:ok, %{percent: brightness, sleep: sleep}}
+    {:ok, %{percent: brightness, sleep: sleep, motion: motion}}
   end
 
   @impl true
   def handle_call(:settings, _from, state) do
-    {:reply, %{brightness: state.percent, sleep: state.sleep}, state}
+    {:reply, %{brightness: state.percent, sleep: state.sleep, motion: state.motion}, state}
   end
 
   @impl true
-  def handle_cast({:store, percent, sleep}, state) do
+  def handle_cast({:store, percent, sleep, motion}, state) do
     Nvs.put(:brightness, :erlang.integer_to_binary(percent))
     Nvs.put(:sleep, sleep_label(sleep))
+    Nvs.put(:wake_motion, motion_label(motion))
 
-    {:noreply, %{state | sleep: sleep}}
+    {:noreply, %{state | sleep: sleep, motion: motion}}
   end
 
   # Duty is driven straight, so the saved percentage survives the blanking.

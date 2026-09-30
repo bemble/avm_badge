@@ -7,6 +7,18 @@ defmodule Badge.BacklightTest do
     test "nothing saved gives the defaults" do
       assert Backlight.decode_brightness(nil) == 100
       assert Backlight.decode_sleep(nil) == :s30
+      assert Backlight.decode_motion(nil) == false
+    end
+
+    test "wake on motion round-trips through storage" do
+      for motion <- [true, false] do
+        assert Backlight.decode_motion(Backlight.motion_label(motion)) == motion
+      end
+    end
+
+    test "an unknown wake on motion value falls back to off" do
+      assert Backlight.decode_motion("banana") == false
+      assert Backlight.decode_motion("") == false
     end
 
     test "a saved brightness comes back" do

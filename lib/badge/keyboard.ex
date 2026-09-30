@@ -30,6 +30,7 @@ defmodule Badge.Keyboard do
 
   @rows Hardware.rows()
   @cols Hardware.cols()
+  @accel_int_pin Hardware.accel_int_pin()
 
   # Computed at compile time; AtomVM's runtime Enum has no with_index/1.
   @indexed_rows Enum.with_index(@rows)
@@ -142,9 +143,14 @@ defmodule Badge.Keyboard do
     GenServer.call(__MODULE__, {:holding?, label})
   end
 
-  @doc "Stops the CPU on the next scan until a key is pressed, unless one is held."
-  @spec light_sleep() :: :ok
-  def light_sleep, do: GenServer.cast(__MODULE__, :light_sleep)
+  @doc """
+  Stops the CPU on the next scan until a key is pressed, unless one is held.
+
+  With `motion` true the accelerometer's INT1 going high wakes it too; see
+  `Badge.Sensors.park_motion/0`.
+  """
+  @spec light_sleep(boolean) :: :ok
+  def light_sleep(motion \\ false), do: GenServer.cast(__MODULE__, {:light_sleep, motion})
 
   @impl true
   def handle_call({:holding?, label}, _from, state) do
@@ -152,7 +158,8 @@ defmodule Badge.Keyboard do
   end
 
   @impl true
-  def handle_cast(:light_sleep, state), do: {:noreply, %{state | sleep: true}}
+  def handle_cast({:light_sleep, motion}, state),
+    do: {:noreply, %{state | sleep: true, motion: motion}}
 
   @impl true
   def init(:ok) do
@@ -165,7 +172,8 @@ defmodule Badge.Keyboard do
 
     send(self(), :scan)
 
-    {:ok, %{candidate: [], count: 0, held: [], repeat: KeyRepeat.new(), sleep: false}}
+    {:ok,
+     %{candidate: [], count: 0, held: [], repeat: KeyRepeat.new(), sleep: false, motion: false}}
   end
 
   @impl true
@@ -220,8 +228,10 @@ defmodule Badge.Keyboard do
 
   defp nap(state) do
     Enum.each(@cols, fn pin -> :gpio.wakeup_enable(pin, :low) end)
+    # INT1 is driven by the accelerometer, so unlike the matrix it needs no hold.
+    if state.motion, do: :gpio.wakeup_enable(@accel_int_pin, :high)
     :esp.sleep_enable_gpio_wakeup()
-    :io.format(~c"Sleep: light sleep~n")
+    :io.format(~c"Sleep: light sleep~s~n", [motion_note(state.motion)])
 
     # Held, or the pads switch to their sleep configuration and no key can pull a column low.
     Enum.each(@rows ++ @cols, &GPIO.hold_en/1)
@@ -239,6 +249,9 @@ defmodule Badge.Keyboard do
 
     %{state | candidate: pressed, count: @debounce, held: labels, repeat: KeyRepeat.new()}
   end
+
+  defp motion_note(true), do: ~c", motion wakes"
+  defp motion_note(false), do: ~c""
 
   defp setup do
     Enum.each(@cols, fn pin ->

@@ -1,6 +1,6 @@
 defmodule Badge.Page.Settings.Display do
   @moduledoc """
-  Backlight brightness, the sleep timeout and the skin.
+  Backlight brightness, the sleep timeout, wake on motion and the skin.
 
   Up and down pick a setting, Enter starts changing it, and left and right
   adjust. Only while editing are the arrows taken, so at rest they still
@@ -37,9 +37,10 @@ defmodule Badge.Page.Settings.Display do
   @sleep_y @slider_y + 40
   @segment_w 48
 
-  @skin_y @sleep_y + 40
+  @motion_y @sleep_y + 32
+  @skin_y @motion_y + 32
 
-  @rows 3
+  @rows 4
 
   @impl true
   def title, do: "Display"
@@ -51,6 +52,7 @@ defmodule Badge.Page.Settings.Display do
       editing: false,
       brightness: Backlight.default_brightness(),
       timeout: Backlight.default_sleep(),
+      motion: Backlight.default_motion(),
       skin: Skin.default(),
       pushed: nil,
       worn: nil,
@@ -74,10 +76,11 @@ defmodule Badge.Page.Settings.Display do
       state
       | brightness: saved.brightness,
         timeout: saved.sleep,
+        motion: saved.motion,
         skin: skin,
         pushed: saved.brightness,
         worn: skin,
-        saved: {saved.brightness, saved.sleep, skin},
+        saved: {saved.brightness, saved.sleep, saved.motion, skin},
         loaded: true
     }
   end
@@ -104,9 +107,10 @@ defmodule Badge.Page.Settings.Display do
 
   defp persist(
          %{
-           saved: {brightness, timeout, skin},
+           saved: {brightness, timeout, motion, skin},
            brightness: brightness,
            timeout: timeout,
+           motion: motion,
            skin: skin
          } = state
        ) do
@@ -114,10 +118,10 @@ defmodule Badge.Page.Settings.Display do
   end
 
   defp persist(state) do
-    Backlight.store(state.brightness, state.timeout)
+    Backlight.store(state.brightness, state.timeout, state.motion)
     Skin.store(state.skin)
 
-    %{state | saved: {state.brightness, state.timeout, state.skin}}
+    %{state | saved: {state.brightness, state.timeout, state.motion, state.skin}}
   end
 
   @impl true
@@ -139,10 +143,12 @@ defmodule Badge.Page.Settings.Display do
 
   def handle_key(_event, _state), do: :ignore
 
-  @doc "Brightness, timeout and skin as they would read on screen."
-  @spec values(map) :: {binary, binary, binary}
-  def values(state),
-    do: {percent(state.brightness), timeout_name(state.timeout), state.skin.name()}
+  @doc "Brightness, timeout, wake on motion and skin as they would read on screen."
+  @spec values(map) :: {binary, binary, binary, binary}
+  def values(state) do
+    {percent(state.brightness), timeout_name(state.timeout), Backlight.motion_label(state.motion),
+     state.skin.name()}
+  end
 
   defp step(:right), do: 1
   defp step(:left), do: -1
@@ -155,6 +161,12 @@ defmodule Badge.Page.Settings.Display do
   defp adjust(%{cursor: 1} = state, delta) do
     %{state | timeout: shift(state.timeout, delta)}
   end
+
+  defp adjust(%{cursor: 2} = state, delta) when delta != 0 do
+    %{state | motion: delta > 0}
+  end
+
+  defp adjust(%{cursor: 2} = state, _delta), do: state
 
   defp adjust(state, delta) do
     %{state | skin: Skin.shift(state.skin, delta)}
@@ -188,7 +200,8 @@ defmodule Badge.Page.Settings.Display do
 
   @impl true
   def render(state) do
-    brightness_row(state) ++ slider(state) ++ sleep_row(state) ++ skin_row(state) ++ help(state)
+    brightness_row(state) ++
+      slider(state) ++ sleep_row(state) ++ motion_row(state) ++ skin_row(state) ++ help(state)
   end
 
   defp brightness_row(state) do
@@ -236,13 +249,25 @@ defmodule Badge.Page.Settings.Display do
   defp segment_colour(%{timeout: name} = state, name), do: row_colour(state, 1)
   defp segment_colour(_state, _name), do: Theme.dim()
 
+  defp motion_row(state) do
+    value = Backlight.motion_label(state.motion)
+
+    [
+      marker(state, 2, @motion_y),
+      {:text, @label_x, @motion_y, :default16px, label_colour(state, 2), Theme.bg(),
+       "Wake on motion"},
+      {:text, Readout.right_x(value), @motion_y, :default16px, row_colour(state, 2), Theme.bg(),
+       value}
+    ]
+  end
+
   defp skin_row(state) do
     name = state.skin.name()
 
     [
-      marker(state, 2, @skin_y),
-      {:text, @label_x, @skin_y, :default16px, label_colour(state, 2), Theme.bg(), "Theme"},
-      {:text, Readout.right_x(name), @skin_y, :default16px, row_colour(state, 2), Theme.bg(),
+      marker(state, 3, @skin_y),
+      {:text, @label_x, @skin_y, :default16px, label_colour(state, 3), Theme.bg(), "Theme"},
+      {:text, Readout.right_x(name), @skin_y, :default16px, row_colour(state, 3), Theme.bg(),
        name}
     ]
   end

@@ -95,7 +95,8 @@ defmodule Badge.Page.Settings.DisplayTest do
     end
 
     test "the value is shown as a percentage" do
-      {brightness, _sleep, _skin} = Display.values(press(editing_brightness(), {:move, :left}))
+      {brightness, _sleep, _motion, _skin} =
+        Display.values(press(editing_brightness(), {:move, :left}))
 
       assert brightness == "95%"
     end
@@ -118,31 +119,61 @@ defmodule Badge.Page.Settings.DisplayTest do
     end
   end
 
-  describe "theme" do
+  describe "wake on motion" do
     setup do
       down = press(press(Display.init(), {:move, :down}), {:move, :down})
 
       %{editing: press(down, {:edit, :newline})}
     end
 
-    test "is the third row, and down stops there" do
-      assert press(Display.init(), {:move, :down}, 5).cursor == 2
+    test "is the row below sleep, and starts off" do
+      assert press(Display.init(), {:move, :down}, 2).cursor == 2
+      assert elem(Display.values(Display.init()), 2) == "off"
+    end
+
+    test "right turns it on and left turns it off", %{editing: editing} do
+      on = press(editing, {:move, :right})
+
+      assert elem(Display.values(on), 2) == "on"
+      assert elem(Display.values(press(on, {:move, :left})), 2) == "off"
+    end
+
+    test "stops at both ends rather than wrapping", %{editing: editing} do
+      assert elem(Display.values(press(editing, {:move, :right}, 5)), 2) == "on"
+      assert elem(Display.values(press(editing, {:move, :left}, 5)), 2) == "off"
+    end
+
+    test "the value is drawn on the row", %{editing: editing} do
+      assert "Wake on motion" in texts(editing)
+      assert "on" in texts(press(editing, {:move, :right}))
+    end
+  end
+
+  describe "theme" do
+    setup do
+      down = press(Display.init(), {:move, :down}, 3)
+
+      %{editing: press(down, {:edit, :newline})}
+    end
+
+    test "is the fourth row, and down stops there" do
+      assert press(Display.init(), {:move, :down}, 5).cursor == 3
     end
 
     test "starts on the default skin" do
-      assert elem(Display.values(Display.init()), 2) == Badge.Skin.default().name()
+      assert elem(Display.values(Display.init()), 3) == Badge.Skin.default().name()
     end
 
     test "right steps to the next skin and left comes back", %{editing: editing} do
-      assert elem(Display.values(press(editing, {:move, :right})), 2) == "Win95"
+      assert elem(Display.values(press(editing, {:move, :right})), 3) == "Win95"
 
-      assert elem(Display.values(press(press(editing, {:move, :right}), {:move, :left})), 2) ==
+      assert elem(Display.values(press(press(editing, {:move, :right}), {:move, :left})), 3) ==
                "Dark"
     end
 
     test "stops at both ends rather than wrapping", %{editing: editing} do
-      assert elem(Display.values(press(editing, {:move, :right}, 9)), 2) == "Neon Dusk"
-      assert elem(Display.values(press(editing, {:move, :left}, 9)), 2) == "Dark"
+      assert elem(Display.values(press(editing, {:move, :right}, 9)), 3) == "Neon Dusk"
+      assert elem(Display.values(press(editing, {:move, :left}, 9)), 3) == "Dark"
     end
 
     test "the chosen skin's name is drawn on the row", %{editing: editing} do
@@ -156,6 +187,7 @@ defmodule Badge.Page.Settings.DisplayTest do
 
       assert "Brightness" in bodies
       assert "Sleep" in bodies
+      assert "Wake on motion" in bodies
       assert "Theme" in bodies
     end
 

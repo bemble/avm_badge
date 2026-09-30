@@ -46,8 +46,8 @@ defmodule Badge.Hardware do
   def tmp103_addr, do: 0x70
   def sc7a20_addr, do: 0x19
 
-  # SC7A20 INT1, routed for a data-ready interrupt.
-  def accel_int_pin, do: 12
+  # SC7A20 INT1, carrying its motion interrupt.
+  def accel_int_pin, do: 13
 
   # IR link. These are UART0's default pins, so the console has to be driven
   # off them before either is usable; configuring them takes the IO MUX back.
