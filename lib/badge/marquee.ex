@@ -7,7 +7,8 @@ defmodule Badge.Marquee do
   hobbies in dogica, and the GitHub handle in the plain 8x16 font. A line too long for the panel scrolls by; the rest
   sit centred. Every so often the whole screen leaves and comes back
   through an effect, and the effects take turns. In between, one of the
-  lower lines at random replays a random effect every few seconds.
+  lower lines at random replays a random effect every few seconds, or, when
+  it has a logo, shows the logo for a few seconds instead.
 
   A line is a list of rows, each a binary exactly as wide as its font allows
   across the panel, so a frame is one text item per row. Frames are meant to
@@ -32,10 +33,15 @@ defmodule Badge.Marquee do
   @effects {:decrypt, :rain, :wipe, :slide}
   @hold 100
 
-  # While the screen holds, one of the lower lines replays an effect every 2 to 7 seconds.
+  # While the screen holds, one of the lower lines replays an effect every 1 to 4 seconds.
   @lower [:company, :hobbies, :github]
-  @glitch_gap 10
-  @glitch_spread 26
+  @glitch_gap 5
+  @glitch_spread 16
+
+  # Three glitches in four go to a line with a logo: in, out, then its text decrypts back.
+  @logo_in 20
+  @logo_out 3
+  @logo_back :decrypt
 
   # Blank columns, or characters, between the end of a scrolling line and its start.
   @big_gap 6
@@ -235,7 +241,8 @@ defmodule Badge.Marquee do
       base: Map.get(@rain_rows, key, 0),
       noise: noise(font),
       edge: edge(font),
-      from_left: Map.get(@from_left, key, true)
+      from_left: Map.get(@from_left, key, true),
+      logo: nil
     }
   end
 
@@ -243,7 +250,9 @@ defmodule Badge.Marquee do
   What to show `step` frames in, as `{effect, phase, frame, scroll}`.
 
   Phase is `:in`, `:hold` or `:out`, or `{:glitch, key, effect}` while one
-  line replays an effect during a hold, with the frame counting through it.
+  line replays an effect during a hold, with the frame counting through it,
+  or `{:logo, key, :in | :out}` while a line with a `logo` shows it instead,
+  reporting frame 0.
   A held frame reports frame 0, and scroll is 0 unless some line scrolls,
   so a still screen only changes its view for a glitch.
 
@@ -265,7 +274,7 @@ defmodule Badge.Marquee do
     case phase(0, rem(step, period)) do
       {effect, :hold, turn, held} ->
         seed = rem(div(step, period) * tuple_size(@effects) + turn, 101)
-        {phase, k} = glitch(lower(lines), seed, held)
+        {phase, k} = glitch(lower(lines), logos(lines), seed, held)
 
         {effect, phase, k, scroll}
 
@@ -276,21 +285,56 @@ defmodule Badge.Marquee do
 
   defp lower(lines), do: for(%{key: key} <- lines, :lists.member(key, @lower), do: key)
 
-  defp glitch([], _seed, _held), do: {:hold, 0}
-  defp glitch(keys, seed, held), do: glitch(keys, seed, held, 0, 0)
+  defp logos(lines), do: for(%{key: key, logo: logo} <- lines, logo != nil, do: key)
+
+  defp glitch([], _logos, _seed, _held), do: {:hold, 0}
+  defp glitch(keys, logos, seed, held), do: glitch(keys, logos, seed, held, 0, 0)
 
   # Glitch n starts a random gap after the last one ends; one that would outlast the hold is skipped.
-  defp glitch(keys, seed, held, n, free) do
+  defp glitch(keys, logos, seed, held, n, free) do
     start = free + @glitch_gap + rem(hash(seed, n, 3), @glitch_spread)
-    effect = elem(@effects, rem(hash(seed, n, 5), tuple_size(@effects)))
-    finish = start + duration(effect)
+    key = glitch_key(keys, logos, seed, n)
+    logo = :lists.member(key, logos)
+
+    effect =
+      case logo do
+        true -> :logo
+        false -> elem(@effects, rem(hash(seed, n, 5), tuple_size(@effects)))
+      end
+
+    finish = start + glitch_length(effect)
 
     cond do
       held < start or finish > @hold -> {:hold, 0}
-      held < finish -> {{:glitch, pick(keys, hash(seed, n, 7)), effect}, held - start}
-      true -> glitch(keys, seed, held, n + 1, finish)
+      held < finish -> glitch_phase(key, effect, held - start)
+      true -> glitch(keys, logos, seed, held, n + 1, finish)
     end
   end
+
+  defp glitch_key(keys, [], seed, n), do: pick(keys, hash(seed, n, 7))
+
+  defp glitch_key(keys, logos, seed, n) do
+    case rem(hash(seed, n, 11), 4) do
+      0 -> pick(keys, hash(seed, n, 17))
+      _logo -> pick(weighted(logos), hash(seed, n, 7))
+    end
+  end
+
+  # The company's logo comes up twice as often as a hobby's.
+  defp weighted(logos) do
+    case :lists.member(:company, logos) do
+      true -> [:company | logos]
+      false -> logos
+    end
+  end
+
+  defp glitch_length(:logo), do: @logo_in + @logo_out + duration(@logo_back)
+  defp glitch_length(effect), do: duration(effect)
+
+  defp glitch_phase(key, :logo, k) when k < @logo_in, do: {{:logo, key, :in}, 0}
+  defp glitch_phase(key, :logo, k) when k < @logo_in + @logo_out, do: {{:logo, key, :out}, 0}
+  defp glitch_phase(key, :logo, k), do: {{:glitch, key, @logo_back}, k - @logo_in - @logo_out}
+  defp glitch_phase(key, effect, k), do: {{:glitch, key, effect}, k}
 
   defp pick(keys, hash), do: :lists.nth(rem(hash, length(keys)) + 1, keys)
 
@@ -331,6 +375,7 @@ defmodule Badge.Marquee do
       :out -> draw(effect, placed, duration(effect) - 1 - k, style)
       {:glitch, key, glitch} when key == line.key -> draw(glitch, placed, k, style)
       {:glitch, _key, _glitch} -> placed
+      {:logo, _key, _direction} -> placed
     end
   end
 

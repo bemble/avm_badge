@@ -1,6 +1,7 @@
 defmodule Badge.Page.NameTest do
   use ExUnit.Case, async: true
 
+  alias Badge.Brands
   alias Badge.Font
   alias Badge.Marquee
   alias Badge.Page.Name
@@ -954,6 +955,30 @@ defmodule Badge.Page.NameTest do
       github: "gus"
     }
 
+    @nabu %{name: "Gus", company: "Nabu Casa", hobbies: "synths, Home Assistant", github: "gus"}
+
+    # The lines as a tick prepares them, logos read from the assets on disk.
+    defp with_logos(state, view) do
+      lines =
+        for line <- Marquee.prepare(state.profile) do
+          case List.keyfind(Brands.logos(state.profile), line.key, 0) do
+            {_key, brand} -> %{line | logo: Brands.image(brand)}
+            nil -> line
+          end
+        end
+
+      %{state | live: {0, 0, view, lines}}
+    end
+
+    defp logo_boxes(items) do
+      for item <- items, box = box(item), box != nil, do: box
+    end
+
+    defp box({:motion, item, _motion}), do: box(item)
+    defp box({:scaled_cropped_image, x, y, w, h, _, _, _, _, _, _, _}), do: {x, y, w, h}
+    defp box({:image, x, y, _bg, {:rgba8888, w, h, _}}), do: {x, y, w, h}
+    defp box(_item), do: nil
+
     test "is the fourth screen, and wraps round to the badge" do
       assert press(screen(showing(%{name: "Gus"}), 2), {:move, :right}).screen == 3
       assert press(live(%{name: "Gus"}), {:move, :right}).screen == 0
@@ -1101,6 +1126,43 @@ defmodule Badge.Page.NameTest do
 
         assert length(String.split(text, "\n")) == 3
       end
+
+      test "a logo tears in as eight strips of one picture, snapping sideways into place" do
+        items = Name.render(with_logos(live(@nabu), {:decrypt, {:logo, :company, :in}, 0, 0}))
+        strips = Enum.take(items, 8)
+
+        assert [{:motion, {:scaled_cropped_image, _, _, _, _, _, _, _, _, _, _, image}, _} | _] =
+                 strips
+
+        for {{:motion, strip, {mx, 0, :in, delay, 280, :ease_out}}, i} <-
+              Enum.with_index(strips) do
+          assert {:scaled_cropped_image, 140, y, 40, 5, _bg, 0, src_y, 1, 1, [], ^image} = strip
+          assert y == 78 + 5 * i and src_y == 5 * i
+          assert abs(mx) >= 24 and abs(mx) <= 64
+          assert delay >= 0 and delay < 280
+        end
+
+        assert length(for {:motion, _, _} <- items, do: 1) == 8
+      end
+
+      test "and tears away the same way" do
+        items = Name.render(with_logos(live(@nabu), {:decrypt, {:logo, :hobbies, :out}, 0, 0}))
+
+        assert Enum.all?(
+                 Enum.take(items, 8),
+                 &match?({:motion, _strip, {_mx, 0, :out, _delay, 240, :ease_out}}, &1)
+               )
+      end
+
+      test "a logo leaves every other item where it was in the z-order" do
+        state = live(@nabu)
+        held = Name.render(with_logos(state, {:decrypt, :hold, 0, 0}))
+        logo = Name.render(with_logos(state, {:decrypt, {:logo, :company, :in}, 0, 0}))
+        rest = Enum.drop(logo, 8)
+
+        assert length(rest) == length(held)
+        assert length(for {a, b} <- Enum.zip(rest, held), a != b, do: a) == 1
+      end
     else
       test "a long company scrolls while the rest keeps still" do
         state = live(%{name: "Gus", company: "Goatmire International"})
@@ -1109,6 +1171,46 @@ defmodule Badge.Page.NameTest do
 
         assert "@Goatmire Internatio" in texts(first)
         assert "atmire International" in texts(later)
+      end
+    end
+
+    test "a tick reads the logos a profile matches, once, into its lines" do
+      ticked = Name.tick(live(@nabu))
+      {_started, _tick, _view, lines} = ticked.live
+      logos = for line <- lines, do: {line.key, line.logo}
+
+      assert {:rgba8888, 40, 40, _} = :proplists.get_value(:company, logos)
+      assert {:rgba8888, 40, 40, _} = :proplists.get_value(:hobbies, logos)
+      assert :proplists.get_value(:github, logos) == nil
+      assert Name.tick(ticked).live |> elem(3) == lines
+    end
+
+    test "while a logo shows, its line draws no text, and the others stay" do
+      items = Name.render(with_logos(live(@nabu), {:decrypt, {:logo, :company, :in}, 0, 0}))
+      bodies = for {:text, _x, _y, _f, _c, _b, body} <- items, do: body
+
+      refute "@Nabu Casa" in bodies
+      assert Enum.any?(bodies, &(:binary.match(&1, "github.com/gus") != :nomatch))
+      assert logo_boxes(items) != []
+    end
+
+    test "a line whose logo could not be read keeps its text" do
+      items = Name.render(at(live(@nabu), {:decrypt, {:logo, :company, :in}, 0, 0}))
+
+      assert "@Nabu Casa" in for({:text, _x, _y, _f, _c, _b, body} <- items, do: body)
+      assert logo_boxes(items) == []
+    end
+
+    test "a logo is centred in its line's slot, clear of the lines round it" do
+      for {key, top, bottom} <- [{:company, 68, 140}, {:hobbies, 121, 186}] do
+        state = with_logos(live(@nabu), {:decrypt, {:logo, key, :in}, 0, 0})
+        boxes = logo_boxes(Name.render(state))
+        ys = for {_x, y, _w, h} <- boxes, do: [y, y + h]
+
+        assert Enum.all?(boxes, fn {x, _y, w, _h} -> x == 140 and w == 40 end)
+        assert Enum.min(List.flatten(ys)) >= top
+        assert Enum.max(List.flatten(ys)) <= bottom
+        assert Enum.max(List.flatten(ys)) - Enum.min(List.flatten(ys)) == 40
       end
     end
 

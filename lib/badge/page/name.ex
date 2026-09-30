@@ -6,11 +6,14 @@ defmodule Badge.Page.Name do
   second line, and the rule sits under however many lines that takes.
 
   The last screen animates the profile in text mode through `Badge.Marquee`:
-  name, company, hobbies and GitHub top down, long lines scrolling by.
+  name, company, hobbies and GitHub top down, long lines scrolling by. A
+  company or hobby with a logo in `Badge.Brands` shows it now and then in
+  place of its line.
   """
 
   use Badge.Page
 
+  alias Badge.Brands
   alias Badge.Field
   alias Badge.Font
   alias Badge.Icons
@@ -61,6 +64,10 @@ defmodule Badge.Page.Name do
   @live_row_h 16
   @live_large_h 45
   @live_dogica_h 19
+
+  # A logo tears in as strips that snap sideways into place, and tears away the same way.
+  @logo_size Brands.size()
+  @logo_x div(Theme.width() - @logo_size, 2)
 
   # On LVGL a long line scrolls by itself, so the page only redraws for effects.
   @native_scroll Application.compile_env(:avm_badge, :display, :atomgl) == :lvgl
@@ -201,7 +208,7 @@ defmodule Badge.Page.Name do
         end
 
       nil ->
-        lines = Marquee.prepare(state.profile)
+        lines = with_logos(Marquee.prepare(state.profile), Brands.logos(state.profile))
 
         %{state | live: {now, 0, native(Marquee.view(lines, 0)), lines}}
     end
@@ -209,6 +216,18 @@ defmodule Badge.Page.Name do
 
   defp live(%{live: nil} = state), do: state
   defp live(state), do: %{state | live: nil}
+
+  # Read once per visit; a logo missing from the assets partition leaves its line as text.
+  defp with_logos(lines, []), do: lines
+
+  defp with_logos(lines, logos) do
+    for line <- lines do
+      case :lists.keyfind(line.key, 1, logos) do
+        {_key, brand} -> %{line | logo: Brands.image(brand)}
+        false -> line
+      end
+    end
+  end
 
   if @native_scroll do
     defp scroll(_tick), do: 0
@@ -473,14 +492,73 @@ defmodule Badge.Page.Name do
 
   defp live_screen(%{live: {_started, _step, view, lines}}), do: live_items(lines, view)
 
+  # A logo goes first, on top, so the other lines keep their place in the z-order.
   defp live_items(lines, view) do
-    :lists.flatmap(fn line -> line_items(line, view) end, lines)
+    logo_items(lines, view) ++ :lists.flatmap(fn line -> line_items(line, view) end, lines)
+  end
+
+  defp logo_items(lines, {_effect, {:logo, key, direction}, _k, _s}) do
+    case for(%{key: ^key, logo: image} <- lines, image != nil, do: image) do
+      [image | _rest] -> logo(key, direction, image)
+      [] -> []
+    end
+  end
+
+  defp logo_items(_lines, _view), do: []
+
+  defp logo_y(:company), do: slot(:company) + div(@live_large_h - @logo_size, 2)
+  defp logo_y(key), do: slot(key) + div(@live_dogica_h - @logo_size, 2)
+
+  if @native_scroll do
+    @logo_strips 8
+    @logo_strip_h div(@logo_size, @logo_strips)
+    @logo_in_ms 280
+    @logo_out_ms 240
+
+    defp logo(key, direction, image) do
+      y = logo_y(key)
+      ms = if direction == :in, do: @logo_in_ms, else: @logo_out_ms
+
+      for {strip, mx, delay} <- tear() do
+        top = strip * @logo_strip_h
+
+        item =
+          {:scaled_cropped_image, @logo_x, y + top, @logo_size, @logo_strip_h, Theme.bg(), 0, top,
+           1, 1, [], image}
+
+        {:motion, item, {mx, 0, direction, delay, ms, :ease_out}}
+      end
+    end
+
+    # Strip, sideways offset and delay in ms: alternate sides, out of order, like a CRT tear.
+    defp tear do
+      [
+        {0, 40, 0},
+        {1, -56, 90},
+        {2, 24, 30},
+        {3, -64, 150},
+        {4, 48, 60},
+        {5, -32, 180},
+        {6, 60, 120},
+        {7, -28, 210}
+      ]
+    end
+
+    defp stand_in, do: [{:rect, 0, 0, 0, 0, Theme.bg()}]
+  else
+    defp logo(key, _direction, image), do: [{:image, @logo_x, logo_y(key), Theme.bg(), image}]
+    defp stand_in, do: []
   end
 
   defp line_items(line, {effect, phase, _k, _s})
        when @native_scroll and (phase == :in or phase == :out) do
     effect_label(line, effect, phase)
   end
+
+  # A stand-in keeps the item count, so LVGL does not rebuild the lines above.
+  defp line_items(%{key: key, logo: logo}, {_effect, {:logo, key, _dir}, _k, _s})
+       when logo != nil,
+       do: stand_in()
 
   defp line_items(%{key: key} = line, {_effect, {:glitch, key, fx}, _k, _s})
        when @native_scroll do
@@ -494,6 +572,11 @@ defmodule Badge.Page.Name do
 
   defp line_items(%{key: key, scrolls: true} = line, {_effect, {:glitch, other, _fx}, _k, _s})
        when @native_scroll and other != key do
+    marquee(line, slot(key))
+  end
+
+  defp line_items(%{scrolls: true, key: key} = line, {_effect, {:logo, _key, _dir}, _k, _s})
+       when @native_scroll do
     marquee(line, slot(key))
   end
 

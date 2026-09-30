@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Badge.Assets do
-  @shortdoc "Packs assets.avm from the frames, fonts and logo the device reads at runtime"
+  @shortdoc "Packs assets.avm from the frames, fonts and logos the device reads at runtime"
 
   @moduledoc """
   Writes `assets.avm` at the repo root and, with `--flash`, writes it to the
@@ -42,20 +42,25 @@ defmodule Mix.Tasks.Badge.Assets do
     rickroll = Path.join(stage, "assets/priv/rickroll")
     fonts = Path.join(stage, "assets/priv/fonts")
     logo = Path.join(stage, "assets/priv/logo")
+    brands = Path.join(stage, "assets/priv/brands")
 
     try do
       File.mkdir_p!(rickroll)
       File.mkdir_p!(fonts)
       File.mkdir_p!(logo)
+      File.mkdir_p!(brands)
       frames = Path.wildcard("assets/rickroll/*.rgba")
       uf_fonts = Path.wildcard("assets/fonts/*.uf")
       logos = Path.wildcard("assets/logo/*.rgba")
+      brand_logos = Path.wildcard("assets/brands/*.rgba")
       if frames == [], do: Mix.raise("no frames found in assets/rickroll")
       if uf_fonts == [], do: Mix.raise("no fonts found in assets/fonts")
       if logos == [], do: Mix.raise("no logo found in assets/logo")
+      if brand_logos == [], do: Mix.raise("no logos found in assets/brands")
       copy(frames, rickroll)
       copy(uf_fonts, fonts)
       copy(logos, logo)
+      copy(brand_logos, brands)
 
       out = Path.expand(@out)
       # Names inside the archive are relative to the staging directory.
@@ -63,7 +68,8 @@ defmodule Mix.Tasks.Badge.Assets do
         inputs =
           (Path.wildcard("assets/priv/rickroll/*.rgba") ++
              Path.wildcard("assets/priv/fonts/*.uf") ++
-             Path.wildcard("assets/priv/logo/*.rgba"))
+             Path.wildcard("assets/priv/logo/*.rgba") ++
+             Path.wildcard("assets/priv/brands/*.rgba"))
           |> Enum.map(&to_charlist/1)
 
         :ok = :packbeam_api.create(to_charlist(out), inputs, %{lib: true})

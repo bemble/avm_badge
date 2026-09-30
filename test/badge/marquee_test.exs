@@ -302,7 +302,7 @@ defmodule Badge.MarqueeTest do
       assert :lists.usort(for {_key, effect} <- glitches, do: effect) == :lists.sort(@effects)
     end
 
-    test "one glitch at a time, each run through from its first frame, 2 to 7 seconds apart" do
+    test "one glitch at a time, each run through from its first frame, 1 to 4 seconds apart" do
       lines = prep([{:name, "Gus"}, {:company, "@Protolux"}, {:hobbies, "synths"}])
       views = for step <- 0..3000, do: Marquee.view(lines, step)
       runs = runs(views, [])
@@ -317,8 +317,8 @@ defmodule Badge.MarqueeTest do
       for [{_s1, stop, _g1, _f1}, {start, _s2, _g2, _f2}] <-
             Enum.chunk_every(runs, 2, 1, :discard),
           Enum.all?(Enum.slice(views, (stop + 1)..(start - 1)//1), &(elem(&1, 1) == :hold)) do
-        assert start - stop - 1 >= 10
-        assert start - stop - 1 <= 35
+        assert start - stop - 1 >= 5
+        assert start - stop - 1 <= 20
       end
     end
 
@@ -351,6 +351,75 @@ defmodule Badge.MarqueeTest do
       views = for step <- 1..1000, do: Marquee.view(prep([{:name, "Gus"}]), step)
 
       assert :lists.member({:decrypt, :in, 0, 0}, views)
+    end
+  end
+
+  describe "logos" do
+    # The page puts the picture in; the timeline only asks whether there is one.
+    defp with_logo(lines, key) do
+      for line <- prep(lines), do: if(line.key == key, do: %{line | logo: :picture}, else: line)
+    end
+
+    @lines [{:name, "Gus"}, {:company, "@Nabu Casa"}, {:hobbies, "synths"}]
+
+    defp phases(lines), do: for(step <- 0..3000, do: elem(Marquee.view(lines, step), 1))
+
+    test "a prepared line has no logo until the page gives it one" do
+      assert Enum.all?(prep(@lines), &(&1.logo == nil))
+      refute Enum.any?(phases(prep(@lines)), &match?({:logo, _, _}, &1))
+    end
+
+    test "a line with a logo shows it now and then, and only that line" do
+      logos = for {:logo, key, _dir} <- phases(with_logo(@lines, :company)), do: key
+
+      assert length(logos) > 100
+      assert :lists.usort(logos) == [:company]
+    end
+
+    test "the logo holds 4 s, leaves over 3 frames, then the text decrypts back" do
+      lines = with_logo(@lines, :company)
+      views = for step <- 0..3000, do: Marquee.view(lines, step)
+      phases = for {_e, phase, _k, _s} <- views, do: phase
+
+      starts =
+        for {[before, {:logo, :company, :in}], step} <-
+              Enum.with_index(Enum.chunk_every(phases, 2, 1, :discard)),
+            before != {:logo, :company, :in},
+            do: step + 1
+
+      assert length(starts) >= 3
+
+      for start <- starts do
+        run = Enum.slice(views, start, 33)
+
+        assert Enum.all?(Enum.take(run, 20), &match?({_e, {:logo, :company, :in}, 0, _s}, &1))
+
+        assert Enum.all?(
+                 Enum.slice(run, 20, 3),
+                 &match?({_e, {:logo, :company, :out}, 0, _s}, &1)
+               )
+
+        assert for({_e, {:glitch, :company, :decrypt}, k, _s} <- Enum.drop(run, 23), do: k) ==
+                 Enum.to_list(0..9)
+      end
+    end
+
+    test "a line with a logo always shows it, and other lines still glitch" do
+      phases = phases(with_logo(@lines, :company))
+      company = for {:glitch, :company, effect} <- phases, do: effect
+      others = for {:glitch, key, _effect} <- phases, key != :company, do: key
+
+      assert :lists.usort(company) == [:decrypt]
+      assert others != []
+    end
+
+    test "rows during a logo show every line as it holds" do
+      [_name, company, _hobbies] = lines = with_logo(@lines, :company)
+
+      for line <- lines do
+        assert Marquee.rows(line, {:decrypt, {:logo, company.key, :in}, 0, 0}) ==
+                 Marquee.rows(line, @held)
+      end
     end
   end
 end
